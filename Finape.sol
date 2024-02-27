@@ -202,18 +202,11 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
 }
 
 library Address {
-    error AddressInsufficientBalance(address account);
-    error FailedInnerCall();
-    
-    function sendValue(address payable recipient, uint256 amount) internal {
-        if (address(this).balance < amount) {
-            revert AddressInsufficientBalance(address(this));
-        }
+    function sendValue(address payable recipient, uint256 amount) internal returns(bool){
+        require(address(this).balance >= amount, "Address: insufficient balance");
 
         (bool success, ) = recipient.call{value: amount}("");
-        if (!success) {
-            revert FailedInnerCall();
-        }
+        return success; // always proceeds
     }
 }
 
