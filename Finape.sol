@@ -8,7 +8,7 @@
 
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 abstract contract Context {
     function _msgSender() internal view virtual returns (address) {
@@ -364,6 +364,8 @@ contract Finape is ERC20, Taxable, Ownable {
     address public pair;
     bool _interlock;
 
+    event SwapAndSendFee(uint256 tokensSwapped, uint256 fundSent);
+
     modifier lockTheSwap() {
         _interlock = true;
         _;
@@ -385,8 +387,8 @@ contract Finape is ERC20, Taxable, Ownable {
     {
         require(__burnPoints > 0, "BurnPoints must be greater than 0 basis point");
         require(__taxPoints >= __burnPoints, "TaxPoints must be greater than BurnPoints");
-        require(__taxPoints <= 1000, "TaxPoints must not exceed 1,000 basis points (10%)");
-        require(__burnPoints <= 1000, "BurnPoints must not exceed 1,000 basis points (10%)");
+        require(__taxPoints <= 1_000, "TaxPoints must not exceed 1,000 basis points (10%)");
+        require(__burnPoints <= 1_000, "BurnPoints must not exceed 1,000 basis points (10%)");
 
         IRouter _router = IRouter(__routerAddress);
         address _pair = IFactory(_router.factory()).createPair(address(this), _router.WETH());
@@ -446,13 +448,16 @@ contract Finape is ERC20, Taxable, Ownable {
         internal
         override
     {
-        require(amount > 0, "Transfer amount must be greater than zero");
-        
+        if (amount == 0) {
+            super._update(from, to, 0);
+            return;
+        }
+
         if (_interlock || !isTaxed() || isTaxExempted(from) || isTaxExempted(to) || isTaxExemptedFrom(from) || isTaxExemptedTo(to) || (from != pair && to != pair)) {
             super._update(from, to, amount);
         } else {
             
-            uint taxPortion = amount * taxPoints() / 10000;
+            uint taxPortion = amount * taxPoints() / 10_000;
             uint userPortion = amount - taxPortion;
 
             super._update(from, address(this), taxPortion); 
@@ -472,7 +477,7 @@ contract Finape is ERC20, Taxable, Ownable {
         uint toSwap = contractTokenBalance - toBurn;
 
         if (toSwap > 0) {
-            swapTokensForEth(toSwap);
+            swapAndSendFee(toSwap);
         }
 
         if (toBurn > 0) {
@@ -480,17 +485,26 @@ contract Finape is ERC20, Taxable, Ownable {
         }
     }
 
-    function swapTokensForEth(uint tokenAmount) private {
+    function swapAndSendFee(uint tokenAmount) private {
+        uint256 initialBalance = address(this).balance;
+
         address[] memory path = new address[](2);
         path[0] = address(this);
         path[1] = router.WETH();
         
-        router.swapExactTokensForETHSupportingFeeOnTransferTokens(
+        try router.swapExactTokensForETHSupportingFeeOnTransferTokens(
             tokenAmount,
             0,
             path,
-            taxRecipient(),
+            address(this),
             block.timestamp
-        );
+        ) {} catch {
+            return;
+        }
+
+        uint256 deltaBalance = address(this).balance - initialBalance;
+        payable(taxRecipient()).sendValue(deltaBalance);
+
+        emit SwapAndSendFee(tokenAmount, deltaBalance);
     }
 }
