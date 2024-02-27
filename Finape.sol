@@ -364,8 +364,6 @@ contract Finape is ERC20, Taxable, Ownable {
     address public pair;
     bool _interlock;
 
-    event SwapAndSendFee(uint256 tokensSwapped, uint256 fundSent);
-
     modifier lockTheSwap() {
         _interlock = true;
         _;
@@ -448,10 +446,7 @@ contract Finape is ERC20, Taxable, Ownable {
         internal
         override
     {
-        if (amount == 0) {
-            super._update(from, to, 0);
-            return;
-        }
+        require(amount > 0, "Transfer amount must be greater than zero");
 
         if (_interlock || !isTaxed() || isTaxExempted(from) || isTaxExempted(to) || isTaxExemptedFrom(from) || isTaxExemptedTo(to) || (from != pair && to != pair)) {
             super._update(from, to, amount);
@@ -477,7 +472,7 @@ contract Finape is ERC20, Taxable, Ownable {
         uint toSwap = contractTokenBalance - toBurn;
 
         if (toSwap > 0) {
-            swapAndSendFee(toSwap);
+            swapTokensForEth(toSwap);
         }
 
         if (toBurn > 0) {
@@ -485,7 +480,7 @@ contract Finape is ERC20, Taxable, Ownable {
         }
     }
 
-    function swapAndSendFee(uint tokenAmount) private {
+    function swapTokensForEth(uint tokenAmount) private {
         uint256 initialBalance = address(this).balance;
 
         address[] memory path = new address[](2);
@@ -504,7 +499,5 @@ contract Finape is ERC20, Taxable, Ownable {
 
         uint256 deltaBalance = address(this).balance - initialBalance;
         payable(taxRecipient()).sendValue(deltaBalance);
-
-        emit SwapAndSendFee(tokenAmount, deltaBalance);
     }
 }
